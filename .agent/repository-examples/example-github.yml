@@ -1,0 +1,29 @@
+# GitHub Repositories Configuration
+# This file manages GitHub repositories for plugin/mod downloads from GitHub Releases
+
+repositories:
+  # Example 1: Paper plugin from GitHub
+  - url: https://github.com/PaperMC/Paper
+    name: Paper Server
+
+  # Example 2: Velocity proxy from GitHub
+  - url: https://github.com/PaperMC/Velocity
+    name: Velocity Proxy
+
+  # Example 3: Custom plugin
+  - url: https://github.com/username/my-plugin
+    name: My Custom Plugin
+# How to add GitHub repositories:
+# 1. Using the CLI (recommended):
+#    sks repo add https://github.com/owner/repo
+#    sks repo add https://github.com/owner/repo --global
+#
+# 2. Manually editing this file:
+#    - Add a new entry with 'url' and 'name' fields
+#    - URL should be the GitHub repository URL
+#    - Name is the display name for the project
+#
+# Notes:
+# - Shulkers will automatically fetch the latest release from each repository
+# - Only .jar files from releases will be downloaded
+# - The repository must have at least one release with a .jar asset

@@ -1,0 +1,29 @@
+# Test Repository with Download Path
+# This is a test configuration to verify downloadPath functionality
+
+id: test-repo
+name: Test Repository
+baseUrl: https://api.spiget.org/v2
+
+# Search endpoint
+searchPath: search/resources/{{query}}?size=5
+
+# Version endpoint
+versionPath: resources/{{id}}/versions/latest
+
+# Download endpoint using template
+downloadPath: resources/{{id}}/download
+
+# Mappings for search results
+mappings:
+  resultsPath: ""
+  id: id
+  name: name
+  description: tag
+  author: author.id
+
+# Mappings for version information
+versionMappings:
+  version: name
+  downloadUrl: url
+  fileName: name

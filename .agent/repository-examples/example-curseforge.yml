@@ -1,0 +1,30 @@
+# CurseForge Minecraft Mods Repository Example
+# Note: CurseForge API requires an API key for most endpoints
+# This is a simplified example
+
+id: curseforge
+name: CurseForge
+baseUrl: https://api.curseforge.com/v1
+
+# Search endpoint
+searchPath: mods/search?gameId=432&searchFilter={{query}}&pageSize=10
+
+# Version/file endpoint
+versionPath: mods/{{id}}/files
+
+# Download endpoint - direct download URL pattern
+downloadPath: mods/{{id}}/files/download
+
+# Mappings for search results
+mappings:
+  resultsPath: data
+  id: id
+  name: name
+  description: summary
+  author: authors.0.name
+
+# Mappings for version information
+versionMappings:
+  version: data.0.displayName
+  downloadUrl: data.0.downloadUrl
+  fileName: data.0.fileName

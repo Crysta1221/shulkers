@@ -1,0 +1,34 @@
+# Hangar (PaperMC Plugin Repository) Example
+# This is an example configuration for adding Hangar as a custom repository
+
+id: hangar
+name: Hangar (PaperMC)
+baseUrl: https://hangar.papermc.io/api/v1
+
+# Search endpoint - {{query}} will be replaced with the search term
+searchPath: projects?q={{query}}&limit=10
+
+# Version endpoint - {{id}} will be replaced with the project ID
+versionPath: projects/{{id}}/versions
+
+# Download endpoint - {{id}}, {{version}}, {{fileName}} will be replaced
+# If not specified, downloadUrl from versionMappings will be used
+downloadPath: projects/{{id}}/versions/{{version}}/PAPER/download
+
+# Mappings for search results
+mappings:
+  # Path to the array of results in the JSON response
+  # Use empty string if the root is already an array
+  resultsPath: result
+
+  # JSON paths for each field (using dot notation)
+  id: name
+  name: name
+  description: description
+  author: owner
+
+# Mappings for version information
+versionMappings:
+  version: name
+  downloadUrl: downloads.PAPER.downloadUrl
+  fileName: downloads.PAPER.fileInfo.name

@@ -1,0 +1,35 @@
+# Simple Custom Repository Example
+# This shows the minimal required fields for a custom repository
+
+id: my-custom-repo
+name: My Custom Plugin Repository
+baseUrl: https://example.com/api
+
+# Search endpoint - {{query}} is replaced with search term
+searchPath: search?q={{query}}
+
+# Version endpoint - {{id}} is replaced with plugin ID
+versionPath: plugins/{{id}}/latest
+
+# Download endpoint (optional) - {{id}}, {{version}}, {{fileName}} are replaced
+# If not specified, downloadUrl from versionMappings will be used instead
+downloadPath: plugins/{{id}}/download/{{version}}
+
+# Mappings for parsing search results
+mappings:
+  # If your API returns an array directly, use empty string
+  # If results are nested (e.g., {data: [...]}), use the path (e.g., "data")
+  resultsPath: ""
+
+  # JSON paths to extract data from each result
+  id: plugin_id
+  name: plugin_name
+  description: desc
+  author: creator
+
+# Mappings for parsing version information
+versionMappings:
+  version: ver
+  downloadUrl: download_link
+  # fileName is optional - if not provided, defaults to {id}.jar
+  fileName: file_name
