@@ -23,21 +23,48 @@
 
 ## 📋 Requirements
 
-- [Bun](https://bun.sh) v1.0 or later
 - A Minecraft server (Paper, Spigot, Purpur, Velocity, etc.)
+- Linux (x64, arm64) or Windows (x64)
 
 ## 🚀 Installation
 
+### Linux / macOS
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Crysta1221/shulkers/main/install.sh | bash
+```
+
+### Windows (PowerShell)
+
+```powershell
+irm https://raw.githubusercontent.com/Crysta1221/shulkers/main/install.ps1 | iex
+```
+
+### Manual Installation
+
+Download the latest binary from [GitHub Releases](https://github.com/Crysta1221/shulkers/releases) and add it to your PATH.
+
+| Platform | File |
+|----------|------|
+| Linux x64 | `shulkers-linux-x64` |
+| Linux arm64 | `shulkers-linux-arm64` |
+| Windows x64 | `shulkers-windows-x64.exe` |
+
+### Build from Source
+
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/shulkers.git
+git clone https://github.com/Crysta1221/shulkers.git
 cd shulkers
+
+# Install Bun (if not installed)
+curl -fsSL https://bun.sh/install | bash
 
 # Install dependencies
 bun install
 
-# Link globally
-bun link
+# Build binary
+bun build src/index.ts --compile --outfile=sks
 ```
 
 ## 🏁 Quick Start
@@ -69,8 +96,9 @@ sks update
 | Command | Description |
 |---------|-------------|
 | `sks init` | Initialize a new Shulkers project |
-| `sks list` | List installed plugins/mods |
+| `sks list` | List installed plugins/mods (grouped by source) |
 | `sks scan` | Scan and register existing plugins |
+| `sks link [target]` | Re-link a plugin to a different source |
 
 ### Plugin Management
 
@@ -78,7 +106,7 @@ sks update
 |---------|-------------|
 | `sks search <query>` | Search for plugins across repositories |
 | `sks info <plugin>` | Show detailed information about a plugin |
-| `sks install <plugin...>` | Install plugin(s) from project.yml |
+| `sks install <plugin...>` | Install plugin(s) |
 | `sks add <plugin...>` | Add and install plugin(s) |
 | `sks remove <plugin...>` | Remove installed plugin(s) |
 
@@ -87,16 +115,16 @@ sks update
 | Command | Description |
 |---------|-------------|
 | `sks outdated` | Check for outdated plugins |
-| `sks update` | Update to latest minor versions |
-| `sks update --latest` | Update to latest versions |
-| `sks update --latest --safe` | Update only if server compatible |
+| `sks update` | Update all plugins |
+| `sks update --latest` | Update to latest versions (not just minor) |
+| `sks update --safe` | Update only if server version compatible |
 
 ### Repository Management
 
 | Command | Description |
 |---------|-------------|
 | `sks repo list` | List configured repositories |
-| `sks repo add <name> <url>` | Add a custom repository |
+| `sks repo add <github-url>` | Add a GitHub repository |
 | `sks repo remove <name>` | Remove a repository |
 
 ## 📦 Plugin Sources
@@ -147,8 +175,8 @@ dependencies:
 ### Global Configuration
 
 Global settings are stored in:
-- **Linux/macOS**: `~/.config/shulkers/`
-- **Windows**: `%APPDATA%\shulkers\`
+- **Linux**: `~/.config/shulkers/`
+- **Windows**: `%LOCALAPPDATA%\shulkers\`
 
 ## 🔧 Development
 
