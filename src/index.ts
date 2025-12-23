@@ -1,7 +1,11 @@
 #!/usr/bin/env bun
 import { cli, define } from "gunshi";
 import pc from "picocolors";
-import { loadRepositories } from "./lib/config";
+import { checkForUpdatesSync } from "./lib/version-checker";
+import pkg from "../package.json";
+
+/** Application version from package.json */
+export const VERSION = pkg.version;
 
 // Import commands explicitly (alphabetical order)
 import { addCommand } from "./commands/add";
@@ -16,9 +20,7 @@ import repo from "./commands/repo";
 import { scanCommand } from "./commands/scan";
 import { searchCommand } from "./commands/search";
 import { updateCommand } from "./commands/update";
-
-// Load custom repositories from local and global directories
-loadRepositories();
+import { upgradeCommand } from "./commands/upgrade";
 
 /**
  * Safely convert unknown value to string.
@@ -48,6 +50,7 @@ const subCommands = {
   scan: scanCommand,
   search: searchCommand,
   update: updateCommand,
+  upgrade: upgradeCommand,
 };
 
 /**
@@ -56,7 +59,7 @@ const subCommands = {
 const root = define({
   name: "shulkers",
   description: "Minecraft Server Manager CLI",
-  version: "0.1.0",
+  version: VERSION,
   subCommands,
   run: async (ctx) => {
     // Show help when no subcommand is provided
@@ -72,7 +75,7 @@ const root = define({
 try {
   await cli(process.argv.slice(2), root, {
     name: "shulkers|sks",
-    version: "0.1.0",
+    version: VERSION,
     description: "Minecraft Server Manager CLI",
     subCommands,
 
@@ -92,7 +95,21 @@ try {
           : ctx.env.description ?? ctx.description
         : "";
 
-      return description ? `${title}\n${description}` : title;
+      // Check for updates (non-blocking, uses cache)
+      let updateNotice = "";
+      const updateInfo = checkForUpdatesSync();
+      if (updateInfo?.hasUpdate) {
+        updateNotice =
+          "\n" +
+          pc.cyan("ℹ️") +
+          " " +
+          pc.cyan(
+            `A new version (v${updateInfo.latestVersion}) is available! Run 'sks upgrade' to update.`
+          );
+      }
+
+      const header = description ? `${title}\n${description}` : title;
+      return header + updateNotice;
     },
 
     renderValidationErrors: async (_ctx, error) => {

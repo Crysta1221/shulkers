@@ -12,6 +12,10 @@
 
 ---
 
+> [!IMPORTANT]
+> **🚧This project is currently in BETA.**
+> Unexpected bugs or changes may occur. Please use with caution in production environments. If you find any bugs, please report them via Issues.
+
 ## ✨ Features
 
 - 🔍 **Search** - Find plugins across Modrinth, Spigot, and GitHub
@@ -67,6 +71,20 @@ bun install
 bun build src/index.ts --compile --outfile=sks
 ```
 
+## 🗑️ Uninstallation
+
+### Linux / macOS
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Crysta1221/shulkers/main/scripts/uninstall.sh | bash
+```
+
+### Windows (PowerShell)
+
+```powershell
+irm https://raw.githubusercontent.com/Crysta1221/shulkers/main/scripts/uninstall.ps1 | iex
+```
+
 ## 🏁 Quick Start
 
 ```bash
@@ -118,6 +136,8 @@ sks update
 | `sks update` | Update all plugins |
 | `sks update --latest` | Update to latest versions (not just minor) |
 | `sks update --safe` | Update only if server version compatible |
+| `sks upgrade` | Upgrade Shulkers CLI to the latest version |
+| `sks upgrade --check` | Check for CLI updates without installing |
 
 ### Repository Management
 

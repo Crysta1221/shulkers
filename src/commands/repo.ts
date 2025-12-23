@@ -1,5 +1,6 @@
 import { cli, define } from "gunshi";
 import pc from "picocolors";
+import { VERSION } from "../index";
 import add from "./repo/add";
 import remove from "./repo/remove";
 import list from "./repo/list";
@@ -46,7 +47,7 @@ function renderSubCommandHelp(
 
   // Header
   output += `${pc.green(pc.bold("📦 Shulkers"))} repo ${subCommandName}${pc.dim(
-    " v0.1.0"
+    ` v${VERSION}`
   )}\n`;
   output += `${toSafeString(subCommand.description)}\n\n`;
 
