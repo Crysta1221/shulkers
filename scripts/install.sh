@@ -22,32 +22,32 @@ INSTALL_DIR="${SHULKERS_INSTALL:-$HOME/.shulkers}"
 BIN_DIR="${SHULKERS_BIN:-$HOME/.local/bin}"
 
 print_header() {
-    echo -e "${GREEN}"
-    echo "  ____  _           _ _                   "
-    echo " / ___|| |__  _   _| | | _____ _ __ ___  "
-    echo " \___ \| '_ \| | | | | |/ / _ \ '__/ __| "
-    echo "  ___) | | | | |_| | |   <  __/ |  \__ \ "
-    echo " |____/|_| |_|\__,_|_|_|\_\___|_|  |___/ "
-    echo -e "${NC}"
-    echo -e "${CYAN}📦 Minecraft Server Plugin Manager${NC}"
-    echo ""
+    echo -e "${GREEN}" >&2
+    echo "  ____  _           _ _                   " >&2
+    echo " / ___|| |__  _   _| | | _____ _ __ ___  " >&2
+    echo " \___ \| '_ \| | | | | |/ / _ \ '__/ __| " >&2
+    echo "  ___) | | | | |_| | |   <  __/ |  \__ \ " >&2
+    echo " |____/|_| |_|\__,_|_|_|\_\___|_|  |___/ " >&2
+    echo -e "${NC}" >&2
+    echo -e "${CYAN}📦 Minecraft Server Plugin Manager${NC}" >&2
+    echo "" >&2
 }
 
 info() {
-    echo -e "${CYAN}info${NC}: $1"
+    echo -e "${CYAN}info${NC}: $1" >&2
 }
 
 warn() {
-    echo -e "${YELLOW}warn${NC}: $1"
+    echo -e "${YELLOW}warn${NC}: $1" >&2
 }
 
 error() {
-    echo -e "${RED}error${NC}: $1"
+    echo -e "${RED}error${NC}: $1" >&2
     exit 1
 }
 
 success() {
-    echo -e "${GREEN}✔${NC} $1"
+    echo -e "${GREEN}✔${NC} $1" >&2
 }
 
 detect_platform() {
