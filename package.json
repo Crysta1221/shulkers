@@ -9,7 +9,7 @@
     "sks": "./index.ts"
   },
   "devDependencies": {
-    "@gunshi/docs": "0.27.0",
+    "@gunshi/docs": "0.27.5",
     "@types/bun": "latest",
     "oxlint-tsgolint": "^0.9.0"
   },
@@ -19,7 +19,7 @@
   "dependencies": {
     "@inquirer/prompts": "^8.1.0",
     "cli-spinners": "^3.3.0",
-    "gunshi": "0.27.0",
+    "gunshi": "0.27.5",
     "jszip": "^3.10.1",
     "ky": "^1.14.1",
     "ora": "^9.0.0",
