@@ -22,6 +22,7 @@ BIN_DIR="${SHULKERS_BIN:-$HOME/.local/bin}"
 GLOBAL_CONFIG_DIR="$HOME/.shulkers"
 GLOBAL_UNINSTALL=false
 SUDO=""
+ASSUME_YES=false
 
 is_unsafe_path() {
     local p="$1"
@@ -46,16 +47,59 @@ require_safe_path() {
 print_usage() {
     cat >&2 << 'EOF'
 Usage:
-  uninstall.sh [--global]
+    uninstall.sh [--global] [--yes]
 
 Options:
   --global, -g   Uninstall a global install (Linux only). Uses /usr/local by default.
+    --yes, -y      Assume "yes" for the main uninstall prompt (useful for non-interactive runs).
   --help, -h     Show this help.
 
 Examples:
   curl -fsSL https://raw.githubusercontent.com/Crysta1221/shulkers/main/scripts/uninstall.sh | bash
   curl -fsSL https://raw.githubusercontent.com/Crysta1221/shulkers/main/scripts/uninstall.sh | bash -s -- --global
+    curl -fsSL https://raw.githubusercontent.com/Crysta1221/shulkers/main/scripts/uninstall.sh | bash -s -- --global --yes
 EOF
+}
+
+prompt_yes_no() {
+    local prompt="$1"
+    local default_no="${2:-true}"
+
+    if [[ "$ASSUME_YES" == true ]]; then
+        return 0
+    fi
+
+    local reply=""
+    local input_hint="[y/N]"
+    if [[ "$default_no" != true ]]; then
+        input_hint="[Y/n]"
+    fi
+
+    # When executed via a pipe (curl | bash), stdin is not a TTY.
+    # Prefer reading from /dev/tty so the user can still answer.
+    if [[ -t 0 ]]; then
+        read -p "${prompt} ${input_hint} " -n 1 -r
+        echo ""
+        reply="$REPLY"
+    elif [[ -r /dev/tty ]]; then
+        read -p "${prompt} ${input_hint} " -n 1 -r < /dev/tty
+        echo "" > /dev/tty
+        reply="$REPLY"
+    else
+        error "Non-interactive shell detected. Re-run with --yes to proceed."
+    fi
+
+    if [[ -z "$reply" ]]; then
+        if [[ "$default_no" == true ]]; then
+            return 1
+        fi
+        return 0
+    fi
+
+    if [[ "$reply" =~ ^[Yy]$ ]]; then
+        return 0
+    fi
+    return 1
 }
 
 setup_global_uninstall() {
@@ -120,12 +164,10 @@ confirm_uninstall() {
     echo ""
     
     read -p "Continue? [y/N] " -n 1 -r
-    echo ""
-    
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        return 1
+    if prompt_yes_no "Continue?" true; then
+        return 0
     fi
-    return 0
+    return 1
 }
 
 remove_binaries() {
@@ -184,10 +226,8 @@ remove_from_shell_config() {
 remove_global_config() {
     if [[ -d "$GLOBAL_CONFIG_DIR" ]]; then
         echo ""
-        read -p "Remove global configuration directory ($GLOBAL_CONFIG_DIR)? [y/N] " -n 1 -r
-        echo ""
-        
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
+        # In non-interactive mode, keep configs by default for safety.
+        if prompt_yes_no "Remove global configuration directory ($GLOBAL_CONFIG_DIR)?" true; then
             require_safe_path "$GLOBAL_CONFIG_DIR" "global config dir"
             rm -rf "$GLOBAL_CONFIG_DIR"
             success "Removed global configuration directory"
@@ -213,6 +253,9 @@ main() {
         case "$1" in
             --global|-g)
                 setup_global_uninstall "$platform"
+                ;;
+            --yes|-y)
+                ASSUME_YES=true
                 ;;
             --help|-h)
                 print_usage

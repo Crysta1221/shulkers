@@ -91,6 +91,12 @@ curl -fsSL https://raw.githubusercontent.com/Crysta1221/shulkers/main/scripts/un
 curl -fsSL https://raw.githubusercontent.com/Crysta1221/shulkers/main/scripts/uninstall.sh | bash -s -- --global
 ```
 
+Non-interactive:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Crysta1221/shulkers/main/scripts/uninstall.sh | bash -s -- --global --yes
+```
+
 ### Windows (PowerShell)
 
 ```powershell
