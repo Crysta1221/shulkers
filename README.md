@@ -38,6 +38,12 @@
 curl -fsSL https://raw.githubusercontent.com/Crysta1221/shulkers/main/scripts/install.sh | bash
 ```
 
+#### Global install (all users)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Crysta1221/shulkers/main/scripts/install.sh | bash -s -- --global
+```
+
 ### Windows (PowerShell)
 
 ```powershell
@@ -77,6 +83,12 @@ bun build src/index.ts --compile --outfile=sks
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Crysta1221/shulkers/main/scripts/uninstall.sh | bash
+```
+
+#### Global uninstall
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Crysta1221/shulkers/main/scripts/uninstall.sh | bash -s -- --global
 ```
 
 ### Windows (PowerShell)

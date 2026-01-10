@@ -20,6 +20,66 @@ NC='\033[0m' # No Color
 INSTALL_DIR="${SHULKERS_INSTALL:-$HOME/.shulkers}"
 BIN_DIR="${SHULKERS_BIN:-$HOME/.local/bin}"
 GLOBAL_CONFIG_DIR="$HOME/.shulkers"
+GLOBAL_UNINSTALL=false
+SUDO=""
+
+is_unsafe_path() {
+    local p="$1"
+
+    # Empty / root / current / parent are always unsafe.
+    if [[ -z "$p" ]] || [[ "$p" == "/" ]] || [[ "$p" == "." ]] || [[ "$p" == ".." ]]; then
+        return 0
+    fi
+
+    return 1
+}
+
+require_safe_path() {
+    local p="$1"
+    local label="$2"
+
+    if is_unsafe_path "$p"; then
+        error "Refusing to operate on unsafe path for ${label}: '${p}'"
+    fi
+}
+
+print_usage() {
+    cat >&2 << 'EOF'
+Usage:
+  uninstall.sh [--global]
+
+Options:
+  --global, -g   Uninstall a global install (Linux only). Uses /usr/local by default.
+  --help, -h     Show this help.
+
+Examples:
+  curl -fsSL https://raw.githubusercontent.com/Crysta1221/shulkers/main/scripts/uninstall.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/Crysta1221/shulkers/main/scripts/uninstall.sh | bash -s -- --global
+EOF
+}
+
+setup_global_uninstall() {
+    GLOBAL_UNINSTALL=true
+
+    if [[ "$1" == "windows-x64" ]]; then
+        error "--global is not supported on Windows. Use the default per-user uninstall instead."
+    fi
+
+    if [[ -z "${SHULKERS_INSTALL:-}" ]]; then
+        INSTALL_DIR="/usr/local/share/shulkers"
+    fi
+    if [[ -z "${SHULKERS_BIN:-}" ]]; then
+        BIN_DIR="/usr/local/bin"
+    fi
+
+    if [[ "$(id -u)" -ne 0 ]]; then
+        if command -v sudo >/dev/null 2>&1; then
+            SUDO="sudo"
+        else
+            error "Global uninstall requires root privileges. Re-run as root or install sudo."
+        fi
+    fi
+}
 
 print_header() {
     echo -e "${RED}"
@@ -76,20 +136,26 @@ remove_binaries() {
     )
     
     for file in "${files_to_remove[@]}"; do
+        require_safe_path "$file" "file removal"
         if [[ -e "$file" ]] || [[ -L "$file" ]]; then
-            rm -f "$file"
+            ${SUDO} rm -f "$file"
             success "Removed $file"
         fi
     done
     
     # Remove install directory if empty
+    require_safe_path "$INSTALL_DIR" "install dir"
     if [[ -d "$INSTALL_DIR" ]] && [[ -z "$(ls -A "$INSTALL_DIR")" ]]; then
-        rmdir "$INSTALL_DIR"
+        ${SUDO} rmdir "$INSTALL_DIR"
         success "Removed empty directory $INSTALL_DIR"
     fi
 }
 
 remove_from_shell_config() {
+    if [[ "$GLOBAL_UNINSTALL" == true ]]; then
+        return
+    fi
+
     local shell_configs=(
         "$HOME/.bashrc"
         "$HOME/.bash_profile"
@@ -122,6 +188,7 @@ remove_global_config() {
         echo ""
         
         if [[ $REPLY =~ ^[Yy]$ ]]; then
+            require_safe_path "$GLOBAL_CONFIG_DIR" "global config dir"
             rm -rf "$GLOBAL_CONFIG_DIR"
             success "Removed global configuration directory"
         else
@@ -132,6 +199,31 @@ remove_global_config() {
 
 main() {
     print_header
+
+    # Detect platform early so we can validate flags.
+    local platform=""
+    case "$(uname -s)" in
+        Linux*) platform="linux" ;;
+        Darwin*) platform="darwin" ;;
+        CYGWIN*|MINGW*|MSYS*) platform="windows-x64" ;;
+        *) platform="" ;;
+    esac
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --global|-g)
+                setup_global_uninstall "$platform"
+                ;;
+            --help|-h)
+                print_usage
+                exit 0
+                ;;
+            *)
+                error "Unknown argument: $1"
+                ;;
+        esac
+        shift
+    done
     
     if ! confirm_uninstall; then
         echo ""

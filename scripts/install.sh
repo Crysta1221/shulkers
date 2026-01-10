@@ -3,7 +3,8 @@
 # Installation Script
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/Crysta1221/shulkers/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/Crysta1221/shulkers/main/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/Crysta1221/shulkers/main/scripts/install.sh | bash -s -- --global
 #
 # This script downloads and installs the Shulkers CLI tool.
 
@@ -20,6 +21,48 @@ NC='\033[0m' # No Color
 REPO="Crysta1221/shulkers"
 INSTALL_DIR="${SHULKERS_INSTALL:-$HOME/.shulkers}"
 BIN_DIR="${SHULKERS_BIN:-$HOME/.local/bin}"
+GLOBAL_INSTALL=false
+SUDO=""
+
+print_usage() {
+    cat >&2 << 'EOF'
+Usage:
+  install.sh [--global]
+
+Options:
+  --global, -g   Install for all users (Linux only). Uses /usr/local by default.
+  --help, -h     Show this help.
+
+Examples:
+  curl -fsSL https://raw.githubusercontent.com/Crysta1221/shulkers/main/scripts/install.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/Crysta1221/shulkers/main/scripts/install.sh | bash -s -- --global
+EOF
+}
+
+setup_global_install() {
+    GLOBAL_INSTALL=true
+
+    if [[ "$1" == "windows-x64" ]]; then
+        error "--global is not supported on Windows. Use the default per-user install instead."
+    fi
+
+    # Only apply defaults if env vars are not set.
+    if [[ -z "${SHULKERS_INSTALL:-}" ]]; then
+        INSTALL_DIR="/usr/local/share/shulkers"
+    fi
+    if [[ -z "${SHULKERS_BIN:-}" ]]; then
+        BIN_DIR="/usr/local/bin"
+    fi
+
+    # Use sudo if needed.
+    if [[ "$(id -u)" -ne 0 ]]; then
+        if command -v sudo >/dev/null 2>&1; then
+            SUDO="sudo"
+        else
+            error "Global install requires root privileges. Re-run as root or install sudo."
+        fi
+    fi
+}
 
 print_header() {
     echo -e "${GREEN}" >&2
@@ -97,6 +140,7 @@ download_binary() {
     local filename="shulkers-${platform}"
     local url="https://github.com/${REPO}/releases/download/${version}/${filename}"
     local target="${INSTALL_DIR}/shulkers"
+    local tmp=""
 
     # Add .exe extension for Windows
     if [[ "$platform" == "windows-x64" ]]; then
@@ -106,18 +150,22 @@ download_binary() {
     fi
 
     info "Downloading Shulkers ${version} for ${platform}..."
-    
-    # Create install directory
-    mkdir -p "$INSTALL_DIR"
-    
-    # Download binary
-    if ! curl -fsSL "$url" -o "$target" 2>/dev/null; then
+
+    tmp="$(mktemp)"
+
+    # Download to a temp file first (works even when target requires root).
+    if ! curl -fsSL "$url" -o "$tmp" 2>/dev/null; then
+        rm -f "$tmp" >/dev/null 2>&1 || true
         error "Failed to download from ${url}"
     fi
 
+    # Create install directory and move into place
+    ${SUDO} mkdir -p "$INSTALL_DIR"
+    ${SUDO} mv "$tmp" "$target"
+
     # Make executable (Linux only)
     if [[ "$platform" != "windows-x64" ]]; then
-        chmod +x "$target"
+        ${SUDO} chmod +x "$target"
     fi
 
     echo "$target"
@@ -128,7 +176,7 @@ install_binary() {
     local platform="$2"
 
     # Create bin directory
-    mkdir -p "$BIN_DIR"
+    ${SUDO} mkdir -p "$BIN_DIR"
 
     # Create symlink or copy
     if [[ "$platform" == "windows-x64" ]]; then
@@ -137,8 +185,8 @@ install_binary() {
         success "Installed to ${BIN_DIR}/sks.exe"
     else
         # On Linux/macOS, create symlinks
-        ln -sf "$binary_path" "${BIN_DIR}/sks"
-        ln -sf "$binary_path" "${BIN_DIR}/shulkers"
+        ${SUDO} ln -sf "$binary_path" "${BIN_DIR}/sks"
+        ${SUDO} ln -sf "$binary_path" "${BIN_DIR}/shulkers"
         success "Installed to ${BIN_DIR}/sks"
     fi
 }
@@ -146,6 +194,11 @@ install_binary() {
 add_to_path() {
     local shell_config=""
     local path_line="export PATH=\"\$HOME/.local/bin:\$PATH\""
+
+    # Global installs typically use /usr/local/bin which is already on PATH.
+    if [[ "$GLOBAL_INSTALL" == true ]]; then
+        return
+    fi
 
     # Detect shell configuration file
     if [[ -n "$BASH_VERSION" ]]; then
@@ -193,11 +246,28 @@ verify_installation() {
 main() {
     print_header
 
-    # Detect platform
+    # Detect platform early so we can validate flags.
     info "Detecting platform..."
     local platform
     platform=$(detect_platform)
     success "Platform: ${platform}"
+
+    # Parse args
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --global|-g)
+                setup_global_install "$platform"
+                ;;
+            --help|-h)
+                print_usage
+                exit 0
+                ;;
+            *)
+                error "Unknown argument: $1"
+                ;;
+        esac
+        shift
+    done
 
     # Get latest version
     info "Fetching latest version..."
