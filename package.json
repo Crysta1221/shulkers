@@ -11,7 +11,7 @@
   "devDependencies": {
     "@gunshi/docs": "0.27.5",
     "@types/bun": "latest",
-    "oxlint-tsgolint": "^0.9.0"
+    "oxlint-tsgolint": "^0.11.1"
   },
   "peerDependencies": {
     "typescript": "^5"
