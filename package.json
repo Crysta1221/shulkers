@@ -9,7 +9,7 @@
     "sks": "./index.ts"
   },
   "devDependencies": {
-    "@gunshi/docs": "0.27.5",
+    "@gunshi/docs": "0.27.6",
     "@types/bun": "latest",
     "oxlint-tsgolint": "^0.11.1"
   },
