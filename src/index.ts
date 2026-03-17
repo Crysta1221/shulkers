@@ -31,8 +31,134 @@ function toSafeString(value: unknown): string {
   if (typeof value === "number" || typeof value === "boolean") {
     return String(value);
   }
-  // For objects, arrays, etc., return empty string to avoid [object Object]
   return "";
+}
+
+/** Type for command arguments schema */
+type ArgsSchema = Record<string, Record<string, unknown>>;
+
+/**
+ * Build positional arguments string from args schema.
+ * e.g., " <name>" or " [name]" depending on required flag
+ */
+function buildPositionalArgsString(args: ArgsSchema | undefined): string {
+  if (!args || typeof args !== "object") return "";
+
+  let result = "";
+  for (const [argName, schema] of Object.entries(args)) {
+    if (schema.type === "positional") {
+      const isRequired = schema.required === true;
+      result += isRequired ? ` <${argName}>` : ` [${argName}]`;
+    }
+  }
+  return result;
+}
+
+/**
+ * Check if args schema has non-positional options.
+ */
+function hasNonPositionalOptions(args: ArgsSchema | undefined): boolean {
+  if (!args || typeof args !== "object") return false;
+
+  for (const schema of Object.values(args)) {
+    if (schema.type !== "positional") return true;
+  }
+  return false;
+}
+
+/**
+ * Resolve target subcommands from context.
+ */
+function resolveSubCommands(
+  ctx: Record<string, unknown>,
+  envSubCommands: unknown
+): unknown {
+  const callMode = ctx.callMode as string;
+  const name = ctx.name as string | undefined;
+
+  // Root/entry mode: use env subcommands
+  if (callMode === "entry" || callMode === "root" || name === "shulkers") {
+    return envSubCommands;
+  }
+
+  // Try context subCommands first
+  if (ctx.subCommands) return ctx.subCommands;
+
+  // Try command definition
+  const command = ctx.command as Record<string, unknown> | undefined;
+  if (command?.subCommands) return command.subCommands;
+
+  // Try looking up in env by name
+  if (name && envSubCommands) {
+    const cmdDef =
+      envSubCommands instanceof Map
+        ? envSubCommands.get(name)
+        : (envSubCommands as Record<string, unknown>)[name];
+    if ((cmdDef as Record<string, unknown> | undefined)?.subCommands) {
+      return (cmdDef as Record<string, unknown>).subCommands;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Render subcommands section for help output.
+ */
+function renderSubCommandsSection(
+  targetSubCommands: unknown,
+  currentName: string | undefined,
+  maxLabelLen: number
+): string {
+  if (!targetSubCommands) return "";
+
+  const commands =
+    targetSubCommands instanceof Map
+      ? Array.from(targetSubCommands.entries())
+      : Object.entries(targetSubCommands as object);
+
+  if (commands.length === 0) return "";
+
+  let output = "";
+  let count = 0;
+
+  for (const [name, command] of commands) {
+    // Skip root command and hidden aliases
+    if (name === "shulkers" || name === currentName || name === "i") continue;
+
+    const desc = toSafeString((command as Record<string, unknown>).description);
+    output += `  ${pc.green(name.padEnd(maxLabelLen))} ${desc}\n`;
+    count++;
+  }
+
+  return count > 0 ? `${pc.yellow("Commands:")}\n${output}\n` : "";
+}
+
+/**
+ * Render options section for help output.
+ */
+function renderOptionsSection(
+  args: ArgsSchema | undefined,
+  maxLabelLen: number
+): string {
+  let output = `${pc.yellow("Options:")}\n`;
+
+  if (args && typeof args === "object") {
+    for (const [name, schema] of Object.entries(args)) {
+      if (schema.type === "positional") continue;
+
+      const short = schema.short ? `-${toSafeString(schema.short)}, ` : "    ";
+      const label = `${short}--${name}`.padEnd(maxLabelLen);
+      const desc = (schema.description as string) || "";
+      output += `  ${pc.green(label)} ${desc}\n`;
+    }
+  }
+
+  // Standard options
+  output += `  ${pc.green("-v, --version".padEnd(maxLabelLen))} output the current version\n`;
+  output += `  ${pc.green("-h, --help".padEnd(maxLabelLen))} display help for command\n`;
+
+  return output;
 }
 
 // Commands registered in alphabetical order
@@ -120,15 +246,13 @@ try {
 
     renderUsage: async (ctx) => {
       const maxLabelLen = 22;
-      let output = "";
-
       const usagePrefix = pc.yellow("Usage:");
       const anyCtx = ctx as Record<string, unknown>;
-      let commandArgs = anyCtx.command
-        ? (anyCtx.command as Record<string, unknown>).args
-        : undefined;
 
-      // Fallback: If args not found in context, look up in subCommands definition
+      // Resolve command args from context or subCommands definition
+      let commandArgs = (anyCtx.command as Record<string, unknown> | undefined)
+        ?.args as ArgsSchema | undefined;
+
       if (
         !commandArgs &&
         ctx.callMode === "subCommand" &&
@@ -139,141 +263,35 @@ try {
           string,
           unknown
         >;
-        commandArgs = cmd.args;
+        commandArgs = cmd.args as ArgsSchema | undefined;
       }
 
+      // Build usage line
+      let output = "";
       if (ctx.callMode === "subCommand" && ctx.name) {
         const cmdDef = anyCtx.command as Record<string, unknown> | undefined;
-        const hasSubCmds = cmdDef?.subCommands;
+        const hasSubCmds = !!cmdDef?.subCommands;
+        const positionalArgs = buildPositionalArgsString(commandArgs);
+        const optionsSuffix = hasNonPositionalOptions(commandArgs)
+          ? " [options]"
+          : "";
+        const subCmdSuffix = hasSubCmds ? " <command>" : "";
 
-        // Build positional args string
-        let positionalArgsStr = "";
-        const argsForPositional = commandArgs as
-          | Record<string, Record<string, unknown>>
-          | undefined;
-        if (argsForPositional && typeof argsForPositional === "object") {
-          for (const [argName, schema] of Object.entries(argsForPositional)) {
-            if (schema.type === "positional") {
-              const isRequired = schema.required === true;
-              positionalArgsStr += isRequired
-                ? ` <${argName}>`
-                : ` [${argName}]`;
-            }
-          }
-        }
-
-        // Check for non-positional options
-        let hasOptions = false;
-        if (argsForPositional && typeof argsForPositional === "object") {
-          for (const [, schema] of Object.entries(argsForPositional)) {
-            if (schema.type !== "positional") {
-              hasOptions = true;
-              break;
-            }
-          }
-        }
-
-        output += `${usagePrefix} ${ctx.env.name} ${
-          ctx.name
-        }${positionalArgsStr}${hasOptions ? " [options]" : ""}${
-          hasSubCmds ? " <command>" : ""
-        }\n\n`;
+        output += `${usagePrefix} ${ctx.env.name} ${ctx.name}${positionalArgs}${optionsSuffix}${subCmdSuffix}\n\n`;
       } else {
         output += `${usagePrefix} ${ctx.env.name} <command> [options]\n\n`;
       }
 
-      // ROBUST COMMAND LOOKUP for subcommands
-      let targetSubCommands: unknown = null;
+      // Render subcommands section
+      const targetSubCommands = resolveSubCommands(anyCtx, ctx.env.subCommands);
+      output += renderSubCommandsSection(
+        targetSubCommands,
+        ctx.name,
+        maxLabelLen
+      );
 
-      if (
-        ctx.callMode === "entry" ||
-        (ctx.callMode as string) === "root" ||
-        ctx.name === "shulkers"
-      ) {
-        targetSubCommands = ctx.env.subCommands;
-      } else {
-        // Look in context subCommands
-        targetSubCommands = anyCtx.subCommands;
-        // If not found, look in current command definition
-        if (
-          !targetSubCommands &&
-          (anyCtx.command as Record<string, unknown> | undefined)?.subCommands
-        ) {
-          targetSubCommands = (anyCtx.command as Record<string, unknown>)
-            .subCommands;
-        }
-        // If still not found, look in env by name
-        if (!targetSubCommands && ctx.name && ctx.env.subCommands) {
-          const esc = ctx.env.subCommands;
-          const cmdDef =
-            esc instanceof Map
-              ? esc.get(ctx.name)
-              : (esc as Record<string, unknown>)[ctx.name];
-          if ((cmdDef as Record<string, unknown> | undefined)?.subCommands) {
-            targetSubCommands = (cmdDef as Record<string, unknown>).subCommands;
-          }
-        }
-      }
-
-      if (targetSubCommands) {
-        const commands =
-          targetSubCommands instanceof Map
-            ? Array.from(targetSubCommands.entries())
-            : Object.entries(targetSubCommands as object);
-
-        if (commands.length > 0) {
-          let commandsOutput = "";
-          let count = 0;
-          for (const [name, command] of commands) {
-            // Skip root command and hidden aliases
-            if (name === "shulkers" || name === ctx.name || name === "i")
-              continue;
-            const desc = toSafeString(
-              (command as Record<string, unknown>).description
-            );
-            commandsOutput += `  ${pc.green(
-              name.padEnd(maxLabelLen)
-            )} ${desc}\n`;
-            count++;
-          }
-
-          if (count > 0) {
-            output += `${pc.yellow("Commands:")}\n${commandsOutput}\n`;
-          }
-        }
-      }
-
-      // Render command-specific options from args
-      const argsObj = commandArgs as
-        | Record<string, Record<string, unknown>>
-        | undefined;
-      if (argsObj && typeof argsObj === "object") {
-        let optionsOutput = "";
-        for (const [name, schema] of Object.entries(argsObj)) {
-          if (schema.type === "positional") continue;
-          const short = schema.short
-            ? `-${toSafeString(schema.short)}, `
-            : "    ";
-          const label = `${short}--${name}`.padEnd(maxLabelLen);
-          const desc = (schema.description as string) || "";
-          optionsOutput += `  ${pc.green(label)} ${desc}\n`;
-        }
-
-        if (optionsOutput) {
-          output += `${pc.yellow("Options:")}\n${optionsOutput}`;
-        } else {
-          output += `${pc.yellow("Options:")}\n`;
-        }
-      } else {
-        output += `${pc.yellow("Options:")}\n`;
-      }
-
-      output += `  ${pc.green(
-        "-v, --version".padEnd(maxLabelLen)
-      )} output the current version\n`;
-      output += `  ${pc.green(
-        "-h, --help".padEnd(maxLabelLen)
-      )} display help for command\n`;
+      // Render options section
+      output += renderOptionsSection(commandArgs, maxLabelLen);
 
       return output;
     },

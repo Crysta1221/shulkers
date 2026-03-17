@@ -239,6 +239,71 @@ async function readJarManifest(
   return null;
 }
 
+/** Timeout in milliseconds for JAR version detection */
+const VERSION_DETECTION_TIMEOUT_MS = 30000;
+
+/** State manager for child process with version detection */
+interface ProcessState {
+  output: string;
+  resolved: boolean;
+  killTimer: ReturnType<typeof setTimeout> | null;
+  timeoutTimer: ReturnType<typeof setTimeout> | null;
+}
+
+/**
+ * Create initial process state for version detection.
+ */
+function createProcessState(): ProcessState {
+  return {
+    output: "",
+    resolved: false,
+    killTimer: null,
+    timeoutTimer: null,
+  };
+}
+
+/**
+ * Clear all timers and mark state as resolved.
+ */
+function clearTimers(state: ProcessState): void {
+  if (state.killTimer) {
+    clearTimeout(state.killTimer);
+    state.killTimer = null;
+  }
+  if (state.timeoutTimer) {
+    clearTimeout(state.timeoutTimer);
+    state.timeoutTimer = null;
+  }
+}
+
+/**
+ * Terminate a child process gracefully, then forcefully if needed.
+ */
+function terminateProcess(
+  proc: ReturnType<typeof import("node:child_process").spawn>,
+  state: ProcessState
+): void {
+  if (state.resolved) return;
+
+  state.resolved = true;
+  clearTimers(state);
+
+  try {
+    proc.kill("SIGTERM");
+    // Force kill after 1 second if still running
+    state.killTimer = setTimeout(() => {
+      try {
+        proc.kill("SIGKILL");
+      } catch {
+        // Process already terminated
+      }
+    }, 1000);
+    state.killTimer.unref();
+  } catch {
+    // Process already terminated
+  }
+}
+
 /**
  * Execute JAR file with --version flag to get server information.
  * Uses spawn for better process control and kills the process after version detection.
@@ -261,113 +326,70 @@ export async function getJarVersion(
         stdio: ["pipe", "pipe", "pipe"],
       });
 
-      let output = "";
-      let resolved = false;
-      let killTimer: ReturnType<typeof setTimeout> | null = null;
-      let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
-      const timeoutMs = 30000; // 30 seconds max
+      const state = createProcessState();
 
-      const cleanup = () => {
-        if (!resolved) {
-          resolved = true;
-          // Clear timers
-          if (killTimer) clearTimeout(killTimer);
-          if (timeoutTimer) clearTimeout(timeoutTimer);
-          // Kill the process
-          try {
-            proc.kill("SIGTERM");
-            // Force kill after 1 second if still running
-            killTimer = setTimeout(() => {
-              try {
-                proc.kill("SIGKILL");
-              } catch {
-                // Process already terminated
-              }
-            }, 1000);
-            killTimer.unref(); // Don't keep event loop alive
-          } catch {
-            // Process already terminated
-          }
-        }
+      const resolveWithResult = (
+        result: { type: ServerType; version: string } | null
+      ) => {
+        if (state.resolved) return;
+        state.resolved = true;
+        clearTimers(state);
+        resolve(result);
       };
 
-      const checkOutput = () => {
-        if (resolved) return false;
-        const lowerOutput = output.toLowerCase();
-        const result = parseServerOutput(lowerOutput);
+      const checkAndResolve = () => {
+        if (state.resolved) return;
+        const result = parseServerOutput(state.output.toLowerCase());
         if (result) {
-          cleanup();
+          terminateProcess(proc, state);
           resolve(result);
-          return true;
         }
-        return false;
       };
 
-      proc.stdout?.on("data", (data: Buffer) => {
-        output += data.toString();
-        checkOutput();
-      });
+      // Handle stdout/stderr data
+      const handleData = (data: Buffer) => {
+        state.output += data.toString();
+        checkAndResolve();
+      };
 
-      proc.stderr?.on("data", (data: Buffer) => {
-        output += data.toString();
-        checkOutput();
-      });
+      proc.stdout?.on("data", handleData);
+      proc.stderr?.on("data", handleData);
 
       proc.on("close", () => {
-        if (!resolved) {
-          resolved = true;
-          if (killTimer) clearTimeout(killTimer);
-          if (timeoutTimer) clearTimeout(timeoutTimer);
-          // Check one last time after process ends
-          const lowerOutput = output.toLowerCase();
-          resolve(parseServerOutput(lowerOutput));
-        }
+        const result = parseServerOutput(state.output.toLowerCase());
+        resolveWithResult(result);
       });
 
       proc.on("error", () => {
-        if (!resolved) {
-          resolved = true;
-          if (killTimer) clearTimeout(killTimer);
-          if (timeoutTimer) clearTimeout(timeoutTimer);
-          resolve(null);
-        }
+        resolveWithResult(null);
       });
 
-      // Timeout after 30 seconds
-      timeoutTimer = setTimeout(() => {
-        if (!resolved) {
-          cleanup();
-          const lowerOutput = output.toLowerCase();
-          resolve(parseServerOutput(lowerOutput));
+      // Timeout after configured duration
+      state.timeoutTimer = setTimeout(() => {
+        if (!state.resolved) {
+          terminateProcess(proc, state);
+          const result = parseServerOutput(state.output.toLowerCase());
+          resolve(result);
         }
-      }, timeoutMs);
-      timeoutTimer.unref(); // Don't keep event loop alive
+      }, VERSION_DETECTION_TIMEOUT_MS);
+      state.timeoutTimer.unref();
     });
   };
 
   // Try --version first (works for Paper, Spigot, etc.)
   let result = await runWithVersionDetection(["--version"]);
-  if (result) {
-    return result;
-  }
+  if (result) return result;
 
   // Try without arguments (works for Velocity, Waterfall, etc.)
   result = await runWithVersionDetection([]);
-  if (result) {
-    return result;
-  }
+  if (result) return result;
 
   // Fallback to JAR manifest
   try {
-    const manifestInfo = await readJarManifest(jarPath);
-    if (manifestInfo) {
-      return manifestInfo;
-    }
+    return await readJarManifest(jarPath);
   } catch {
-    // Ignore manifest read errors
+    return null;
   }
-
-  return null;
 }
 
 /**

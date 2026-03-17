@@ -17,6 +17,77 @@ import { isUserCancelError } from "../lib/prompts";
 import type { SearchResult, Repository } from "../lib/repositories/types";
 import { getCompatibleLoaders } from "../lib/server-utils";
 
+/** Version entry with name property */
+interface VersionEntry {
+  name: string;
+}
+
+/**
+ * Extract base version from a full version string.
+ * e.g., "5.6.1-SNAPSHOT+877" -> "5.6.1"
+ */
+function extractBaseVersion(version: string): string {
+  return version.split(/[-+]/)[0] ?? version;
+}
+
+/**
+ * Deduplicate versions by base version, keeping the first occurrence.
+ * @param versions Array of version entries
+ * @param limit Maximum number of results to return
+ */
+function deduplicateVersions<T extends VersionEntry>(
+  versions: T[],
+  limit: number
+): T[] {
+  const seen = new Map<string, T>();
+  for (const v of versions) {
+    const baseVersion = extractBaseVersion(v.name);
+    if (!seen.has(baseVersion)) {
+      seen.set(baseVersion, v);
+    }
+  }
+  return Array.from(seen.values()).slice(0, limit);
+}
+
+/**
+ * Compare two Minecraft version strings numerically.
+ */
+function compareVersions(a: string, b: string): number {
+  const aParts = a.split(".").map(Number);
+  const bParts = b.split(".").map(Number);
+
+  for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+    const diff = (aParts[i] ?? 0) - (bParts[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+/**
+ * Format version range as "min - max" display string.
+ */
+function formatVersionRange(versions: string[]): string {
+  if (versions.length === 0) return "";
+  if (versions.length === 1) return versions[0] ?? "";
+
+  const sorted = [...versions].sort(compareVersions);
+  return `${sorted[0]} - ${sorted[sorted.length - 1]}`;
+}
+
+/**
+ * Print error message in consistent format.
+ */
+function printError(message: string): void {
+  console.error(pc.red(pc.bold("Error:")) + " " + pc.red(message));
+}
+
+/**
+ * Print warning message in consistent format.
+ */
+function printWarning(message: string): void {
+  console.log(pc.yellow(pc.bold("Warning:")) + " " + pc.yellow(message));
+}
+
 /**
  * Core plugin installation logic.
  */
@@ -34,11 +105,7 @@ export async function installPlugin(ctx: {
       ) || [];
 
     if (targets.length === 0) {
-      console.error(
-        pc.red(pc.bold("Error:")) +
-          " " +
-          pc.red("Please specify what to install.")
-      );
+      printError("Please specify what to install.");
       console.log(pc.dim("Usage: sks install <plugin1> [plugin2] ..."));
       console.log(pc.dim("Example: sks install viaversion geyser"));
       return;
@@ -47,11 +114,7 @@ export async function installPlugin(ctx: {
     // Check for project.yml
     const project = readProject();
     if (!project) {
-      console.error(
-        pc.red(pc.bold("Error:")) +
-          " " +
-          pc.red("No project.yml found. Run 'sks init' first.")
-      );
+      printError("No project.yml found. Run 'sks init' first.");
       return;
     }
 
@@ -120,9 +183,7 @@ async function installFromSource(
   const repo = repositoryManager.get(repoId);
 
   if (!repo) {
-    console.error(
-      pc.red(pc.bold("Error:")) + " " + pc.red(`Unknown source: ${source}`)
-    );
+    printError(`Unknown source: ${source}`);
     return;
   }
 
@@ -155,11 +216,7 @@ async function installFromSource(
       }
     } catch (error) {
       searchSpinner.fail(`Failed to search for "${id}" on Spigot`);
-      console.error(
-        pc.red(pc.bold("Error:")) +
-          " " +
-          pc.red(error instanceof Error ? error.message : String(error))
-      );
+      printError(error instanceof Error ? error.message : String(error));
       return;
     }
   }
@@ -177,11 +234,7 @@ async function installFromSource(
 
     // Check for external/premium
     if (resource.external) {
-      console.log(
-        pc.yellow(pc.bold("Warning:")) +
-          " " +
-          pc.yellow("This resource is hosted externally.")
-      );
+      printWarning("This resource is hosted externally.");
       console.log(
         pc.dim("External resources cannot be downloaded automatically.")
       );
@@ -190,11 +243,7 @@ async function installFromSource(
     }
 
     if (resource.premium) {
-      console.log(
-        pc.yellow(pc.bold("Warning:")) +
-          " " +
-          pc.yellow("This is a premium (paid) resource.")
-      );
+      printWarning("This is a premium (paid) resource.");
       console.log(
         pc.dim("Premium resources cannot be downloaded automatically.")
       );
@@ -218,31 +267,17 @@ async function installFromSource(
         );
       } catch {
         // Version not found - show available versions that match
-        console.error(
-          pc.red(pc.bold("Error:")) +
-            " " +
-            pc.red(`Version ${version} not found for ${resource.name}`)
-        );
+        printError(`Version ${version} not found for ${resource.name}`);
 
         // Get available versions and filter by prefix
         try {
           const allVersions = await repo.getVersions(resolvedId);
 
-          // Filter by version prefix and deduplicate by base version (x.x.x part)
+          // Filter by version prefix and deduplicate
           const matchingVersions = allVersions.filter((v) =>
             v.name.startsWith(version)
           );
-
-          // Deduplicate: group by base version (before SNAPSHOT/+/- suffix) and keep first (latest)
-          const deduped = new Map<string, (typeof matchingVersions)[0]>();
-          for (const v of matchingVersions) {
-            // Extract base version (e.g., "5.6.1" from "5.6.1-SNAPSHOT+877")
-            const baseVersion = v.name.split(/[-+]/)[0] ?? v.name;
-            if (!deduped.has(baseVersion)) {
-              deduped.set(baseVersion, v);
-            }
-          }
-          const uniqueVersions = Array.from(deduped.values()).slice(0, 10);
+          const uniqueVersions = deduplicateVersions(matchingVersions, 10);
 
           if (uniqueVersions.length > 0) {
             console.log("");
@@ -254,17 +289,7 @@ async function installFromSource(
             }
           } else {
             // Show latest versions instead (also deduplicated)
-            const latestDeduped = new Map<string, (typeof allVersions)[0]>();
-            for (const v of allVersions) {
-              const baseVersion = v.name.split(/[-+]/)[0] ?? v.name;
-              if (!latestDeduped.has(baseVersion)) {
-                latestDeduped.set(baseVersion, v);
-              }
-            }
-            const latestVersions = Array.from(latestDeduped.values()).slice(
-              0,
-              5
-            );
+            const latestVersions = deduplicateVersions(allVersions, 5);
             if (latestVersions.length > 0) {
               console.log("");
               console.log(pc.yellow("Latest available versions:"));
@@ -283,25 +308,7 @@ async function installFromSource(
     }
 
     // Format Supports as "min - max" range
-    let supportsDisplay = "";
-    if (resource.testedVersions.length > 0) {
-      const versions = resource.testedVersions;
-      if (versions.length === 1) {
-        supportsDisplay = versions[0] ?? "";
-      } else {
-        // Sort versions and get min/max
-        const sorted = [...versions].sort((a, b) => {
-          const aParts = a.split(".").map(Number);
-          const bParts = b.split(".").map(Number);
-          for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
-            const diff = (aParts[i] ?? 0) - (bParts[i] ?? 0);
-            if (diff !== 0) return diff;
-          }
-          return 0;
-        });
-        supportsDisplay = `${sorted[0]} - ${sorted[sorted.length - 1]}`;
-      }
-    }
+    const supportsDisplay = formatVersionRange(resource.testedVersions);
 
     // Display info
     console.log("");
@@ -326,12 +333,8 @@ async function installFromSource(
 
       if (!isCompatible) {
         console.log("");
-        console.log(
-          pc.yellow(pc.bold("Warning:")) +
-            " " +
-            pc.yellow(
-              `This resource may not be compatible with your server version (${serverVersion}).`
-            )
+        printWarning(
+          `This resource may not be compatible with your server version (${serverVersion}).`
         );
         const proceed = await confirm({
           message: "Continue installation anyway?",
@@ -371,11 +374,7 @@ async function installFromSource(
         pc.dim(`(v${versionInfo.version}, ${formatBytes(result.size)})`)
     );
   } catch (error) {
-    console.error(
-      pc.red(pc.bold("Error:")) +
-        " " +
-        pc.red(error instanceof Error ? error.message : String(error))
-    );
+    printError(error instanceof Error ? error.message : String(error));
   }
 }
 

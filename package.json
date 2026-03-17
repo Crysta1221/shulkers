@@ -8,21 +8,24 @@
     "shulkers": "./index.ts",
     "sks": "./index.ts"
   },
+  "scripts": {
+    "lint": "bunx tsc -noEmit && bunx oxlint --type-aware"
+  },
   "devDependencies": {
-    "@gunshi/docs": "0.27.5",
-    "@types/bun": "latest",
-    "oxlint-tsgolint": "^0.9.0"
+    "@gunshi/docs": "0.29.3",
+    "@types/bun": "^1.3.10",
+    "oxlint-tsgolint": "^0.17.0"
   },
   "peerDependencies": {
-    "typescript": "^5"
+    "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@inquirer/prompts": "^8.1.0",
-    "cli-spinners": "^3.3.0",
-    "gunshi": "0.27.5",
+    "@inquirer/prompts": "^8.3.2",
+    "cli-spinners": "^3.4.0",
+    "gunshi": "0.29.3",
     "jszip": "^3.10.1",
-    "ky": "^1.14.1",
-    "ora": "^9.0.0",
+    "ky": "^1.14.3",
+    "ora": "^9.3.0",
     "picocolors": "^1.1.1",
     "yaml": "^2.8.2"
   }
