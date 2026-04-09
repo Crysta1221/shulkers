@@ -22,7 +22,7 @@
   "dependencies": {
     "@inquirer/prompts": "^8.3.2",
     "cli-spinners": "^3.4.0",
-    "gunshi": "0.29.3",
+    "gunshi": "0.29.4",
     "jszip": "^3.10.1",
     "ky": "^1.14.3",
     "ora": "^9.3.0",
