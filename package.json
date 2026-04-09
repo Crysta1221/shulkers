@@ -12,7 +12,7 @@
     "lint": "bunx tsc -noEmit && bunx oxlint --type-aware"
   },
   "devDependencies": {
-    "@gunshi/docs": "0.29.3",
+    "@gunshi/docs": "0.29.4",
     "@types/bun": "^1.3.10",
     "oxlint-tsgolint": "^0.17.0"
   },
