@@ -92,7 +92,7 @@ export default define({
     },
   },
   run: async (ctx) => {
-    const source = ctx.positionals[2];
+    const source = ctx.values.source;
     const isGlobal = ctx.values.global ?? false;
 
     if (!source) {
