@@ -15,6 +15,16 @@ export interface SearchResult {
 }
 
 /**
+ * Search options shared by repositories.
+ */
+export interface SearchOptions {
+  /** Compatible loaders to narrow results or versions */
+  loaders?: string[];
+  /** Whether latest version information should be resolved for search results */
+  resolveLatestVersion?: boolean;
+}
+
+/**
  * Detailed resource information including compatibility data.
  */
 export interface DetailedResource extends SearchResult {
@@ -70,10 +80,7 @@ export interface Repository {
    * @param query Search query
    * @param options Search options (e.g. loaders filter)
    */
-  search(
-    query: string,
-    options?: { loaders?: string[] }
-  ): Promise<SearchResult[]>;
+  search(query: string, options?: SearchOptions): Promise<SearchResult[]>;
 
   /**
    * Get detailed resource information. */

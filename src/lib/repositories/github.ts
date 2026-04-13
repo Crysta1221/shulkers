@@ -2,6 +2,7 @@ import ky from "ky";
 import type {
   Repository,
   SearchResult,
+  SearchOptions,
   DetailedResource,
   VersionEntry,
   VersionInfo,
@@ -62,7 +63,7 @@ export class GitHubRepository implements Repository {
 
   constructor(repos: GitHubRepoEntry[] = []) {
     this.api = ky.create({
-      prefixUrl: this.baseUrl,
+      baseUrl: this.baseUrl,
       headers: {
         Accept: "application/vnd.github.v3+json",
         "User-Agent": "shulkers-cli/1.0.0",
@@ -103,7 +104,7 @@ export class GitHubRepository implements Repository {
   public async search(
     query: string,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _options?: { loaders?: string[] }
+    _options?: SearchOptions,
   ): Promise<SearchResult[]> {
     const results: SearchResult[] = [];
     const lowerQuery = query.toLowerCase();
@@ -203,7 +204,7 @@ export class GitHubRepository implements Repository {
    */
   public async getLatestVersion(
     id: string,
-    _loaders?: string[]
+    _loaders?: string[],
   ): Promise<VersionInfo> {
     const repo = this.repositories.get(id);
     if (!repo) {
@@ -238,7 +239,7 @@ export class GitHubRepository implements Repository {
   public async getVersionDownload(
     id: string,
     version: string,
-    _loaders?: string[]
+    _loaders?: string[],
   ): Promise<VersionInfo> {
     const repo = this.repositories.get(id);
     if (!repo) {

@@ -17,7 +17,11 @@ import { isProjectInitialized } from "../lib/paths";
 import { repositoryManager } from "../lib/repositories/manager";
 import { loadRepositories } from "../lib/config";
 import { isUserCancelError } from "../lib/prompts";
-import type { SearchResult } from "../lib/repositories/types";
+import type {
+  SearchOptions,
+  SearchResult,
+  VersionEntry,
+} from "../lib/repositories/types";
 import { getCompatibleLoaders } from "../lib/server-utils";
 
 /** Analyzed plugin info */
@@ -37,6 +41,25 @@ export type SourceType =
   | "private"
   | "skip"
   | "custom";
+
+type SearchableSource = Exclude<SourceType, "private" | "skip" | "custom">;
+type AutomaticSource = Extract<SearchableSource, "modrinth" | "spigot">;
+
+const AUTO_LINK_SOURCE_PRIORITY = [
+  "modrinth",
+  "spigot",
+] as const satisfies readonly AutomaticSource[];
+
+const SPIGOT_COMPATIBLE_LOADERS = new Set([
+  "bukkit",
+  "spigot",
+  "paper",
+  "purpur",
+  "folia",
+  "bungeecord",
+  "waterfall",
+  "velocity",
+]);
 
 /**
  * Scan command for analyzing and registering existing plugins/mods.
@@ -113,6 +136,12 @@ export const scanCommand = define({
           .map((dep) => dep.fileName)
           .filter(Boolean)
       );
+      const loaders = getCompatibleLoaders(project.server.type);
+      const searchOptions: SearchOptions = { loaders };
+      const autoMatchCache = new Map<
+        string,
+        Promise<{ source: AutomaticSource; id: string } | null>
+      >();
 
       // Analyze each JAR
       const spinner = ora({
@@ -121,36 +150,36 @@ export const scanCommand = define({
         spinner: cliSpinners.dots,
       }).start();
 
-      const results: PluginInfo[] = [];
+      let analyzedCount = 0;
+      const results = await Promise.all(
+        jarFiles.map(async (jarFile) => {
+          const jarPath = join(pluginDir, jarFile);
+          const isRegistered = existingFileNames.has(jarFile);
+          const metadata = await analyzeJar(jarPath);
 
-      for (const jarFile of jarFiles) {
-        const jarPath = join(pluginDir, jarFile);
-        const isRegistered = existingFileNames.has(jarFile);
+          analyzedCount += 1;
+          spinner.text = `Analyzing JAR files... (${analyzedCount}/${jarFiles.length})`;
 
-        spinner.text = `Analyzing ${jarFile}...`;
+          if (metadata) {
+            return {
+              fileName: jarFile,
+              name: metadata.name,
+              version: metadata.version,
+              type: metadata.type,
+              isNew: !isRegistered,
+            };
+          }
 
-        const metadata = await analyzeJar(jarPath);
-
-        if (metadata) {
-          results.push({
-            fileName: jarFile,
-            name: metadata.name,
-            version: metadata.version,
-            type: metadata.type,
-            isNew: !isRegistered,
-          });
-        } else {
-          // Fallback to filename parsing
           const parsed = parseJarFileName(jarFile);
-          results.push({
+          return {
             fileName: jarFile,
             name: parsed.name,
             version: parsed.version || "unknown",
             type: "unknown",
             isNew: !isRegistered,
-          });
-        }
-      }
+          };
+        })
+      );
 
       spinner.succeed(`Analyzed ${results.length} JAR file(s)`);
       console.log("");
@@ -204,6 +233,31 @@ export const scanCommand = define({
         console.log(pc.bold(`\n${plugin.name} v${plugin.version}`));
         console.log(pc.dim(`File: ${plugin.fileName}`));
 
+        const exactMatch = await findAutomaticRepositoryMatch(
+          plugin,
+          searchOptions,
+          autoMatchCache
+        );
+
+        if (exactMatch) {
+          const dependency: DependencyEntry = {
+            source: exactMatch.source,
+            id: exactMatch.id,
+            version: plugin.version,
+            fileName: plugin.fileName,
+          };
+          addDependency(plugin.name, dependency);
+          ora(
+            `  Exact match found on ${exactMatch.source}:${exactMatch.id}`
+          ).succeed();
+          registeredCount++;
+          continue;
+        }
+
+        console.log(
+          pc.dim("  No exact source match found. Choose where to search.")
+        );
+
         let dependency: DependencyEntry | null = null;
 
         // Loop to allow going back to source selection
@@ -231,11 +285,10 @@ export const scanCommand = define({
               continue;
             }
 
-            const loaders = getCompatibleLoaders(project.server.type);
             const linked = await linkToRepository(
               customResult.source,
               plugin,
-              { loaders },
+              searchOptions,
               customResult.query
             );
             if (linked === null) {
@@ -256,8 +309,7 @@ export const scanCommand = define({
             }
           } else {
             // Search and link from repository
-            const loaders = getCompatibleLoaders(project.server.type);
-            const linked = await linkToRepository(source, plugin, { loaders });
+            const linked = await linkToRepository(source, plugin, searchOptions);
             if (linked === null) {
               // User selected "None of these" - skipped
               console.log(pc.dim("  Skipped (no match selected)"));
@@ -309,8 +361,8 @@ export async function selectSource(pluginName: string): Promise<SourceType> {
   return await select({
     message: `Link "${pluginName}" to:`,
     choices: [
-      { name: "🔍 Search Spigot", value: "spigot" as const },
       { name: "🔍 Search Modrinth", value: "modrinth" as const },
+      { name: "🔍 Search Spigot", value: "spigot" as const },
       { name: "🔍 Search GitHub", value: "github" as const },
       { name: "🔎 Custom search query", value: "custom" as const },
       { name: "🔒 Private (no updates)", value: "private" as const },
@@ -339,8 +391,8 @@ export async function selectCustomSearch(): Promise<{
   const source = await select({
     message: "Search on:",
     choices: [
-      { name: "Spigot", value: "spigot" as const },
       { name: "Modrinth", value: "modrinth" as const },
+      { name: "Spigot", value: "spigot" as const },
       { name: "GitHub", value: "github" as const },
     ],
   });
@@ -357,15 +409,12 @@ export async function selectCustomSearch(): Promise<{
  * @param customQuery Optional custom query to use instead of plugin name
  */
 export async function linkToRepository(
-  source: "spigot" | "modrinth" | "github",
+  source: SearchableSource,
   plugin: PluginInfo,
-  options?: { loaders?: string[] },
+  options?: SearchOptions,
   customQuery?: string
-): Promise<
-  { source: "spigot" | "modrinth" | "github"; id: string } | "back" | null
-> {
-  const repoId = source === "spigot" ? "spiget" : source;
-  const repo = repositoryManager.get(repoId);
+): Promise<{ source: SearchableSource; id: string } | "back" | null> {
+  const repo = getRepository(source);
 
   if (!repo) {
     console.log(pc.yellow(`  Repository ${source} not available`));
@@ -452,4 +501,140 @@ export async function linkToRepository(
   }
 
   return { source, id: selectedId };
+}
+
+function getRepository(source: SearchableSource) {
+  const repoId = source === "spigot" ? "spiget" : source;
+  return repositoryManager.get(repoId);
+}
+
+function normalizeExactMatchValue(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function normalizeVersionValue(value: string): string {
+  return normalizeExactMatchValue(value).replace(/^v(?=\d)/, "");
+}
+
+function hasExactNameMatch(pluginName: string, resultName: string): boolean {
+  return normalizeExactMatchValue(pluginName) === normalizeExactMatchValue(resultName);
+}
+
+function hasExactVersionMatch(
+  pluginVersion: string,
+  versions: VersionEntry[]
+): boolean {
+  const expected = normalizeVersionValue(pluginVersion);
+  return versions.some(
+    (version) => normalizeVersionValue(version.name) === expected
+  );
+}
+
+function getAutomaticSourcePriority(
+  options?: SearchOptions
+): readonly AutomaticSource[] {
+  if (
+    options?.loaders &&
+    options.loaders.length > 0 &&
+    !options.loaders.some((loader) =>
+      SPIGOT_COMPATIBLE_LOADERS.has(loader.toLowerCase())
+    )
+  ) {
+    return ["modrinth"];
+  }
+
+  return AUTO_LINK_SOURCE_PRIORITY;
+}
+
+async function findAutomaticRepositoryMatch(
+  plugin: PluginInfo,
+  options: SearchOptions,
+  cache: Map<string, Promise<{ source: AutomaticSource; id: string } | null>>
+): Promise<{ source: AutomaticSource; id: string } | null> {
+  if (!plugin.name.trim() || !plugin.version.trim() || plugin.version === "unknown") {
+    return null;
+  }
+
+  const cacheKey = [
+    normalizeExactMatchValue(plugin.name),
+    normalizeVersionValue(plugin.version),
+    [...(options.loaders || [])].sort().join(","),
+  ].join("|");
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    return await cached;
+  }
+
+  const pending = (async () => {
+    for (const source of getAutomaticSourcePriority(options)) {
+      const match = await findExactRepositoryMatch(source, plugin, options);
+      if (match) {
+        return match;
+      }
+    }
+
+    return null;
+  })();
+
+  cache.set(cacheKey, pending);
+
+  try {
+    return await pending;
+  } catch (error) {
+    cache.delete(cacheKey);
+    throw error;
+  }
+}
+
+async function findExactRepositoryMatch(
+  source: AutomaticSource,
+  plugin: PluginInfo,
+  options?: SearchOptions
+): Promise<{ source: AutomaticSource; id: string } | null> {
+  const repo = getRepository(source);
+  if (!repo) {
+    return null;
+  }
+
+  let results: SearchResult[] = [];
+  try {
+    results = await repo.search(plugin.name, {
+      ...options,
+      resolveLatestVersion: false,
+    });
+  } catch {
+    return null;
+  }
+
+  const exactCandidates = results.filter((result) =>
+    hasExactNameMatch(plugin.name, result.name)
+  );
+
+  for (const candidate of exactCandidates) {
+    let versions: VersionEntry[] = [];
+    try {
+      versions = await repo.getVersions(candidate.id);
+    } catch {
+      continue;
+    }
+
+    if (!hasExactVersionMatch(plugin.version, versions)) {
+      continue;
+    }
+
+    if (source === "spigot") {
+      try {
+        const resource = await repo.getResource(candidate.id);
+        if (resource.external) {
+          continue;
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    return { source, id: candidate.id };
+  }
+
+  return null;
 }

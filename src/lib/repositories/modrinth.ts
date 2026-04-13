@@ -2,6 +2,7 @@ import ky from "ky";
 import type {
   Repository,
   SearchResult,
+  SearchOptions,
   DetailedResource,
   VersionEntry,
   VersionInfo,
@@ -54,7 +55,7 @@ function getAssetTypesFromLoaders(loaders: string[]): ("mod" | "plugin")[] {
 
   const hasModLoader = loaders.some((l) => MOD_LOADERS.has(l.toLowerCase()));
   const hasPluginLoader = loaders.some((l) =>
-    PLUGIN_LOADERS.has(l.toLowerCase())
+    PLUGIN_LOADERS.has(l.toLowerCase()),
   );
 
   if (hasModLoader) types.push("mod");
@@ -107,7 +108,7 @@ export class ModrinthRepository implements Repository {
   public readonly assetTypes: ("mod" | "plugin")[] = ["mod", "plugin"];
 
   private readonly api = ky.create({
-    prefixUrl: this.baseUrl,
+    baseUrl: this.baseUrl,
     headers: {
       "User-Agent": "shulkers-cli/1.0.0 (https://github.com/shulkers)",
     },
@@ -119,13 +120,14 @@ export class ModrinthRepository implements Repository {
    */
   public async search(
     query: string,
-    options?: { loaders?: string[] }
+    options?: SearchOptions,
   ): Promise<SearchResult[]> {
     const searchParams: Record<string, string | number> = {
       query,
       limit: 20,
       index: "relevance",
     };
+    const shouldResolveLatestVersion = options?.resolveLatestVersion !== false;
 
     // Add loader filtering if provided
     if (options?.loaders && options.loaders.length > 0) {
@@ -181,61 +183,65 @@ export class ModrinthRepository implements Repository {
       })
       .json<{ hits: ModrinthSearchResult[] }>();
 
-    // Fetch actual latest version for each project (in parallel)
-    const projectIds = response.hits.map((res) => res.project_id);
     const versionMap = new Map<string, string>();
+    if (shouldResolveLatestVersion) {
+      const projectIds = response.hits.map((res) => res.project_id);
 
-    // Batch fetch: get versions for each project and find the actual latest
-    await Promise.all(
-      projectIds.slice(0, 10).map(async (projectId) => {
-        try {
-          // Note: Do NOT use limit=1 here. Modrinth API sometimes returns old featured versions
-          // when limit is used (e.g. CommandAPI returning v8 instead of v11).
-          // We must fetch versions and sort manually.
-          const versions = await this.api
-            .get(`project/${projectId}/version`)
-            .json<ModrinthVersion[]>();
+      // Batch fetch: get versions for each project and find the actual latest
+      await Promise.all(
+        projectIds.slice(0, 10).map(async (projectId) => {
+          try {
+            // Note: Do NOT use limit=1 here. Modrinth API sometimes returns old featured versions
+            // when limit is used (e.g. CommandAPI returning v8 instead of v11).
+            // We must fetch versions and sort manually.
+            const versions = await this.api
+              .get(`project/${projectId}/version`)
+              .json<ModrinthVersion[]>();
 
-          if (versions.length > 0) {
-            // Filter by loaders if provided to show the latest COMPATIBLE version
-            let compatibleVersions = versions;
-            if (options?.loaders && options.loaders.length > 0) {
-              const userLoaders = new Set(
-                options.loaders.map((l) => l.toLowerCase())
-              );
-              const filtered = versions.filter((v) =>
-                v.loaders.some((l) => userLoaders.has(l.toLowerCase()))
-              );
-              // If we have compatible versions, use them. Otherwise fallback to all (e.g. if metadata is missing)
-              if (filtered.length > 0) {
-                compatibleVersions = filtered;
+            if (versions.length > 0) {
+              // Filter by loaders if provided to show the latest COMPATIBLE version
+              let compatibleVersions = versions;
+              if (options?.loaders && options.loaders.length > 0) {
+                const userLoaders = new Set(
+                  options.loaders.map((l) => l.toLowerCase()),
+                );
+                const filtered = versions.filter((v) =>
+                  v.loaders.some((l) => userLoaders.has(l.toLowerCase())),
+                );
+                // If we have compatible versions, use them. Otherwise fallback to all (e.g. if metadata is missing)
+                if (filtered.length > 0) {
+                  compatibleVersions = filtered;
+                }
+              }
+
+              // Sort by date published descending
+              compatibleVersions.sort((a, b) => {
+                return (
+                  new Date(b.date_published).getTime() -
+                  new Date(a.date_published).getTime()
+                );
+              });
+              const latest = compatibleVersions[0];
+              if (latest) {
+                versionMap.set(projectId, latest.version_number);
               }
             }
-
-            // Sort by date published descending
-            compatibleVersions.sort((a, b) => {
-              return (
-                new Date(b.date_published).getTime() -
-                new Date(a.date_published).getTime()
-              );
-            });
-            const latest = compatibleVersions[0];
-            if (latest) {
-              versionMap.set(projectId, latest.version_number);
-            }
+          } catch {
+            // Ignore errors
           }
-        } catch {
-          // Ignore errors
-        }
-      })
-    );
+        }),
+      );
+    }
 
     return response.hits.map((res) => ({
       id: res.project_id,
       name: res.title,
       description: res.description,
       author: res.author,
-      version: versionMap.get(res.project_id) || "latest",
+      version:
+        shouldResolveLatestVersion && versionMap.has(res.project_id)
+          ? versionMap.get(res.project_id) || "latest"
+          : "latest",
       downloads: res.downloads,
       source: "modrinth",
       url: `https://modrinth.com/project/${res.slug}`,
@@ -307,7 +313,7 @@ export class ModrinthRepository implements Repository {
    */
   public async getLatestVersion(
     id: string,
-    loaders?: string[]
+    loaders?: string[],
   ): Promise<VersionInfo> {
     const versions = await this.api
       .get(`project/${id}/version`)
@@ -318,7 +324,7 @@ export class ModrinthRepository implements Repository {
     // Filter by loaders if specified
     if (loaders && loaders.length > 0) {
       const filtered = versions.filter((v) =>
-        v.loaders.some((l) => loaders.includes(l.toLowerCase()))
+        v.loaders.some((l) => loaders.includes(l.toLowerCase())),
       );
       if (filtered.length > 0) {
         compatibleVersions = filtered;
@@ -354,14 +360,14 @@ export class ModrinthRepository implements Repository {
   public async getVersionDownload(
     id: string,
     version: string,
-    _loaders?: string[]
+    _loaders?: string[],
   ): Promise<VersionInfo> {
     const versions = await this.api
       .get(`project/${id}/version`)
       .json<ModrinthVersion[]>();
 
     const targetVersion = versions.find(
-      (v) => v.version_number === version || v.id === version
+      (v) => v.version_number === version || v.id === version,
     );
 
     if (!targetVersion) {

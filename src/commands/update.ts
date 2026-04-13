@@ -1,5 +1,5 @@
 import { define } from "gunshi";
-import { unlink, stat, chown } from "node:fs/promises";
+import { unlink, stat, chown, rename } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import pc from "picocolors";
@@ -62,7 +62,7 @@ function compareVersions(a: string, b: string): number {
  */
 function findMinorUpdate(
   currentVersion: string,
-  versions: { name: string; gameVersions?: string[] }[]
+  versions: { name: string; gameVersions?: string[] }[],
 ): { name: string; gameVersions?: string[] } | null {
   const current = parseVersion(currentVersion);
   let best: { name: string; gameVersions?: string[] } | null = null;
@@ -84,28 +84,47 @@ function findMinorUpdate(
  */
 function supportsServerVersion(
   gameVersions: string[] | undefined,
-  serverVersion: string
+  serverVersion: string,
 ): boolean {
   if (!gameVersions || gameVersions.length === 0) return true;
   const serverParts = serverVersion.split(".").slice(0, 2).join(".");
   return gameVersions.some(
     (v) =>
       v.startsWith(serverParts) ||
-      serverVersion.startsWith(v.split(".").slice(0, 2).join("."))
+      serverVersion.startsWith(v.split(".").slice(0, 2).join(".")),
   );
 }
 
 /**
- * Copy file ownership from source to target (Linux only).
+ * Generate a unique file name based on a target name.
  */
-async function copyFileOwnership(
-  sourcePath: string,
-  targetPath: string
+function createUniqueFileName(fileName: string, tag: string): string {
+  return `${fileName}.${tag}-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
+}
+
+/**
+ * Best-effort file cleanup.
+ */
+async function bestEffortUnlink(filePath: string): Promise<void> {
+  try {
+    await unlink(filePath);
+  } catch {
+    // Ignore cleanup errors.
+  }
+}
+
+/**
+ * Copy file ownership from source stats to target (Linux only).
+ */
+async function copyFileOwnershipFromStats(
+  sourceStats: { uid: number; gid: number },
+  targetPath: string,
 ): Promise<void> {
   try {
     if (process.platform !== "linux" && process.platform !== "darwin") return;
 
-    const sourceStats = await stat(sourcePath);
     await chown(targetPath, sourceStats.uid, sourceStats.gid);
   } catch {
     // Ignore ownership errors (may not have permissions)
@@ -138,7 +157,7 @@ export const updateCommand = define({
       console.error(
         pc.red(pc.bold("Error:")) +
           " " +
-          pc.red("No project.yml found. Run 'sks init' first.")
+          pc.red("No project.yml found. Run 'sks init' first."),
       );
       return;
     }
@@ -235,7 +254,7 @@ export const updateCommand = define({
         // Get download info for target version
         const versionInfo = await repo.getVersionDownload(
           dep.id,
-          targetVersion.name
+          targetVersion.name,
         );
 
         updates.push({
@@ -286,58 +305,88 @@ export const updateCommand = define({
         color: "cyan",
       }).start();
 
+      let tempFilePath = "";
+
       try {
-        // Get old file path for ownership copy
+        // Prepare file paths for a safe replace flow.
         const oldFilePath = update.oldFileName
           ? join(pluginDir, update.oldFileName)
           : null;
-        const oldFileExists = oldFilePath && existsSync(oldFilePath);
+        const finalFilePath = join(
+          pluginDir,
+          update.targetVersionInfo.fileName,
+        );
+        const tempFileName = createUniqueFileName(
+          update.targetVersionInfo.fileName,
+          "tmp",
+        );
+        tempFilePath = join(pluginDir, tempFileName);
 
-        // Delete old file if exists
+        const oldFileExists = oldFilePath ? existsSync(oldFilePath) : false;
+        let oldFileStats: { uid: number; gid: number } | null = null;
         if (oldFileExists && oldFilePath) {
           try {
-            await unlink(oldFilePath);
+            const sourceStats = await stat(oldFilePath);
+            oldFileStats = {
+              uid: sourceStats.uid,
+              gid: sourceStats.gid,
+            };
           } catch {
-            // Ignore deletion errors
+            // Ignore ownership lookup errors.
           }
         }
 
-        // Download new version
-        const result = await downloadFile(
+        // Download the new version to a temporary file first.
+        const { size } = await downloadFile(
           update.targetVersionInfo.downloadUrl,
           {
             directory: pluginDir,
-            fileName: update.targetVersionInfo.fileName,
+            fileName: tempFileName,
             showProgress: false,
-          }
+          },
         );
 
-        // Copy ownership from old file or existing jar
-        if (oldFileExists && oldFilePath) {
-          // Try to copy from a sibling jar file
-          const { readdirSync } = await import("node:fs");
-          const jarFiles = readdirSync(pluginDir).filter(
-            (f) => f.endsWith(".jar") && join(pluginDir, f) !== result.filePath
+        if (oldFilePath && oldFilePath === finalFilePath && oldFileExists) {
+          const backupFileName = createUniqueFileName(
+            update.targetVersionInfo.fileName,
+            "bak",
           );
-          if (jarFiles.length > 0 && jarFiles[0]) {
-            await copyFileOwnership(
-              join(pluginDir, jarFiles[0]),
-              result.filePath
-            );
+          const backupFilePath = join(pluginDir, backupFileName);
+
+          await rename(oldFilePath, backupFilePath);
+          try {
+            await rename(tempFilePath, finalFilePath);
+          } catch (error) {
+            await rename(backupFilePath, oldFilePath).catch(() => {});
+            throw error;
           }
+
+          await bestEffortUnlink(backupFilePath);
+        } else {
+          await bestEffortUnlink(finalFilePath);
+          await rename(tempFilePath, finalFilePath);
+
+          if (oldFilePath && oldFileExists) {
+            await bestEffortUnlink(oldFilePath);
+          }
+        }
+
+        // Restore ownership from the old file when available.
+        if (oldFileStats) {
+          await copyFileOwnershipFromStats(oldFileStats, finalFilePath);
         }
 
         // Update project.yml
         updateDependencyVersion(
           update.name,
           update.targetVersionInfo.version,
-          update.targetVersionInfo.fileName
+          update.targetVersionInfo.fileName,
         );
 
         updateSpinner.succeed(
           `${update.name}: ${pc.dim(update.current)} → ${pc.green(
-            update.targetVersionInfo.version
-          )} ` + pc.dim(`(${formatBytes(result.size)})`)
+            update.targetVersionInfo.version,
+          )} ` + pc.dim(`(${formatBytes(size)})`),
         );
         updatedCount++;
       } catch (error) {
@@ -358,6 +407,10 @@ export const updateCommand = define({
         }
         updateSpinner.fail(`${update.name}: ${errorMsg}`);
         failedCount++;
+      } finally {
+        if (tempFilePath) {
+          await bestEffortUnlink(tempFilePath);
+        }
       }
     }
 

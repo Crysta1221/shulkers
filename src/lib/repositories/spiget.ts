@@ -2,6 +2,7 @@ import ky from "ky";
 import type {
   Repository,
   SearchResult,
+  SearchOptions,
   DetailedResource,
   VersionEntry,
   VersionInfo,
@@ -47,7 +48,7 @@ export class SpigetRepository implements Repository {
   public readonly baseUrl = "https://api.spiget.org/v2";
   public readonly assetTypes: ("mod" | "plugin")[] = ["plugin"];
 
-  private readonly api = ky.create({ prefixUrl: this.baseUrl });
+  private readonly api = ky.create({ baseUrl: this.baseUrl });
 
   /**
    * Search for plugins on Spiget.
@@ -56,8 +57,9 @@ export class SpigetRepository implements Repository {
   public async search(
     query: string,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _options?: { loaders?: string[] }
+    options?: SearchOptions,
   ): Promise<SearchResult[]> {
+    const shouldResolveLatestVersion = options?.resolveLatestVersion !== false;
     let results: SpigetResource[] = [];
     try {
       results = await this.api
@@ -74,27 +76,32 @@ export class SpigetRepository implements Repository {
       return [];
     }
 
-    // Fetch actual latest version for each resource (in parallel)
     const versionMap = new Map<number, string>();
-    await Promise.all(
-      results.slice(0, 10).map(async (res) => {
-        try {
-          const latestVersion = await this.api
-            .get(`resources/${res.id}/versions/latest`)
-            .json<SpigetVersion>();
-          versionMap.set(res.id, latestVersion.name);
-        } catch {
-          // Ignore errors
-        }
-      })
-    );
+    if (shouldResolveLatestVersion) {
+      // Fetch actual latest version for each resource (in parallel)
+      await Promise.all(
+        results.slice(0, 10).map(async (res) => {
+          try {
+            const latestVersion = await this.api
+              .get(`resources/${res.id}/versions/latest`)
+              .json<SpigetVersion>();
+            versionMap.set(res.id, latestVersion.name);
+          } catch {
+            // Ignore errors
+          }
+        }),
+      );
+    }
 
     return results.map((res) => ({
       id: res.id.toString(),
       name: res.name,
       description: res.tag || "",
       author: res.author.id.toString(),
-      version: versionMap.get(res.id) || "latest",
+      version:
+        shouldResolveLatestVersion && versionMap.has(res.id)
+          ? versionMap.get(res.id) || "latest"
+          : "latest",
       downloads: res.downloads,
       source: "spigot",
       url: `https://www.spigotmc.org/resources/${res.id}`,
@@ -151,7 +158,7 @@ export class SpigetRepository implements Repository {
    */
   public async getLatestVersion(
     id: string,
-    _loaders?: string[]
+    _loaders?: string[],
   ): Promise<VersionInfo> {
     const resource = await this.api
       .get(`resources/${id}`)
@@ -179,7 +186,7 @@ export class SpigetRepository implements Repository {
   public async getVersionDownload(
     id: string,
     version: string,
-    _loaders?: string[]
+    _loaders?: string[],
   ): Promise<VersionInfo> {
     const resource = await this.api
       .get(`resources/${id}`)
@@ -188,7 +195,7 @@ export class SpigetRepository implements Repository {
     // Find version by name or ID
     const versions = await this.getVersions(id);
     const targetVersion = versions.find(
-      (v) => v.name === version || v.id === version
+      (v) => v.name === version || v.id === version,
     );
 
     if (!targetVersion) {

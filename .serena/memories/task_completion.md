@@ -1,0 +1,1 @@
+After changes, run `bun run lint` at minimum. Check `git diff -- <path>` for the touched files and call out any generated/unrelated changes (for example Serena metadata files) instead of reverting user work. If behavior changes depend on networked repositories or local server state, mention whether end-to-end validation was or was not performed.

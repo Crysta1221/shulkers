@@ -2,6 +2,7 @@ import ky from "ky";
 import type {
   Repository,
   SearchResult,
+  SearchOptions,
   DetailedResource,
   VersionEntry,
   VersionInfo,
@@ -52,7 +53,7 @@ export class GenericRepository implements Repository {
     this.id = config.id;
     this.name = config.name;
     this.baseUrl = config.baseUrl;
-    this.api = ky.create({ prefixUrl: this.baseUrl });
+    this.api = ky.create({ baseUrl: this.baseUrl });
   }
 
   /**
@@ -88,36 +89,36 @@ export class GenericRepository implements Repository {
   public async search(
     query: string,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _options?: { loaders?: string[] }
+    _options?: SearchOptions,
   ): Promise<SearchResult[]> {
     const path = this.config.searchPath.replace(
       "{{query}}",
-      encodeURIComponent(query)
+      encodeURIComponent(query),
     );
     const response = await this.api.get(path).json<unknown>();
 
     const results = this.resolvePath(
       response,
-      this.config.mappings.resultsPath
+      this.config.mappings.resultsPath,
     );
     if (!Array.isArray(results)) return [];
 
     return results.map((item) => {
       const itemId = this.toSafeString(
-        this.resolvePath(item, this.config.mappings.id)
+        this.resolvePath(item, this.config.mappings.id),
       );
       return {
         id: itemId || "",
         name:
           this.toSafeString(
-            this.resolvePath(item, this.config.mappings.name)
+            this.resolvePath(item, this.config.mappings.name),
           ) || "Unknown",
         description: this.toSafeString(
-          this.resolvePath(item, this.config.mappings.description)
+          this.resolvePath(item, this.config.mappings.description),
         ),
         author:
           this.toSafeString(
-            this.resolvePath(item, this.config.mappings.author)
+            this.resolvePath(item, this.config.mappings.author),
           ) || "Unknown",
         version: "latest",
         downloads: 0,
@@ -173,13 +174,13 @@ export class GenericRepository implements Repository {
    */
   public async getLatestVersion(
     id: string,
-    _loaders?: string[]
+    _loaders?: string[],
   ): Promise<VersionInfo> {
     const path = this.config.versionPath.replace("{{id}}", id);
     const response = await this.api.get(path).json<unknown>();
 
     const version = this.toSafeString(
-      this.resolvePath(response, this.config.versionMappings.version)
+      this.resolvePath(response, this.config.versionMappings.version),
     );
     const fileName = this.config.versionMappings.fileName
       ? String(this.resolvePath(response, this.config.versionMappings.fileName))
@@ -187,7 +188,7 @@ export class GenericRepository implements Repository {
 
     const downloadUrl = this.config.versionMappings.downloadUrl
       ? String(
-          this.resolvePath(response, this.config.versionMappings.downloadUrl)
+          this.resolvePath(response, this.config.versionMappings.downloadUrl),
         )
       : "";
 
@@ -205,7 +206,7 @@ export class GenericRepository implements Repository {
    */
   public async getVersionDownload(
     id: string,
-    _version: string
+    _version: string,
   ): Promise<VersionInfo> {
     return this.getLatestVersion(id);
   }
